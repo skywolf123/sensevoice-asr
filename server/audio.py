@@ -126,6 +126,21 @@ def silence_bounds(path: str, *, noise_db: int = -35, min_silence: float = 0.6) 
     return spans
 
 
+def speech_spans(silences: list[tuple[float, float]], duration: float) -> list[tuple[float, float]]:
+    """Complement of the silence spans within [0, duration]."""
+    spans: list[tuple[float, float]] = []
+    cursor = 0.0
+    for s_start, s_end in silences:
+        if s_start > cursor:
+            spans.append((cursor, min(s_start, duration)))
+        cursor = max(cursor, s_end)
+        if cursor >= duration:
+            return spans
+    if cursor < duration:
+        spans.append((cursor, duration))
+    return spans
+
+
 def _windows(duration: float, segment_s: float) -> list[tuple[float, float]]:
     out: list[tuple[float, float]] = []
     start = 0.0
@@ -138,27 +153,27 @@ def _windows(duration: float, segment_s: float) -> list[tuple[float, float]]:
 def plan_clips(path: str, samples: np.ndarray, segment_ms: int, noise_db: int = -35) -> list[Clip]:
     """Split the decoded audio into recognizer-sized clips.
 
-    Prefers speech spans when silencedetect found any; otherwise cuts fixed
-    windows so arbitrarily long audio still fits one recognizer call at a time.
+    Speech spans come from inverting ffmpeg's silencedetect output; when no
+    silence is found at all the whole file is one span. Each span is then cut
+    to fixed windows so arbitrarily long audio still fits one recognizer call
+    at a time.
     """
     duration = len(samples) / SAMPLE_RATE
     if duration <= 0:
         return []
     segment_s = max(1.0, segment_ms / 1000.0)
 
-    spans = silence_bounds(path, noise_db=noise_db)
-    if not spans:
-        spans = [(0.0, duration)]
+    silences = silence_bounds(path, noise_db=noise_db)
+    spans = speech_spans(silences, duration) if silences else [(0.0, duration)]
 
     clips: list[Clip] = []
     for span_start, span_end in spans:
-        end = duration if span_end == float("inf") else min(span_end, duration)
         # Long speech spans are cut further; a single recognizer call should
         # not hold minutes of audio on a low-power CPU.
-        for win_start, win_end in _windows(max(0.0, end - span_start), segment_s):
+        for win_start, win_end in _windows(max(0.0, span_end - span_start), segment_s):
             start = span_start + win_start
             stop = span_start + win_end
-            if stop - start < 0.2:  # drop slivers the VAD boundary can leave
+            if stop - start < 0.2:  # drop slivers the detector boundary leaves
                 continue
             clips.append(
                 Clip(

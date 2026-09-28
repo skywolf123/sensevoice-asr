@@ -64,5 +64,12 @@ class Config:
             port=_env_int("ASR_PORT", 8080),
         )
 
+    def ensure_model_files(self) -> None:
+        """Fail fast with a readable message when the image lacks its model."""
+        if not self.model_file.exists():
+            raise SystemExit(f"model not found: {self.model_file}")
+        if not self.tokens_file.exists():
+            raise SystemExit(f"tokens not found: {self.tokens_file}")
+
 
 config = Config.from_env()

@@ -26,6 +26,11 @@ def clean_text(raw: str) -> str:
     return _MARKER.sub("", raw).strip()
 
 
+def marker_value(raw: str) -> str:
+    """'<|zh|>' -> 'zh'; plain strings pass through untouched."""
+    return raw.replace("<|", "").replace("|>", "").strip()
+
+
 @dataclass
 class ClipResult:
     text: str
@@ -49,9 +54,9 @@ class Recognizer:
             result = stream.result
         return ClipResult(
             text=clean_text(result.text or ""),
-            language=getattr(result, "lang", "") or "",
-            emotion=getattr(result, "emotion", "") or "",
-            event=getattr(result, "event", "") or "",
+            language=marker_value(getattr(result, "lang", "") or ""),
+            emotion=marker_value(getattr(result, "emotion", "") or ""),
+            event=marker_value(getattr(result, "event", "") or ""),
         )
 
 

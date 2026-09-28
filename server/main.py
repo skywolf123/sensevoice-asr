@@ -24,7 +24,18 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger("sensevoice-asr")
 
 app = FastAPI(title="sensevoice-asr", version="0.1.0")
-pool = Pool(config)
+# Fail fast at container start when the image lacks its model; the recognizer
+# itself is heavy (~300 MB) and is built lazily on the first request so that
+# importing this module stays cheap (and testable).
+config.ensure_model_files()
+_pool: Pool | None = None
+
+
+def _pool_for_request() -> Pool:
+    global _pool
+    if _pool is None:
+        _pool = Pool(config)
+    return _pool
 
 # The pristine copy of the upload is kept under this suffix; ffmpeg identifies
 # the container from it.
@@ -43,6 +54,7 @@ def _transcribe(path: str) -> tuple[str, list[dict], str]:
         return "", [], ""
 
     clips = plan_clips(path, samples, config.segment_ms, config.noise_db)
+    pool = _pool_for_request()
     recognizer = pool.checkout()
     try:
         pieces: list[str] = []
